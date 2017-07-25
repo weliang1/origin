@@ -751,4 +751,154 @@ Feature: Egress-ingress related networking scenarios
     Then the step should fail 
 
 
+  # @author weliang@redhat.com
+  # @case_id OCP-15004
+  @admin
+  Scenario: Service with a DNS name can not by pass Egressnetworkpolicy with that DNS name	
+    Given the env is using multitenant network
+    Given I have a project
+    Given I have a pod-for-ping in the project
+    And evaluation of `project.name` is stored in the :proj1 clipboard
 
+    # Create egress policy to deny www.test.com
+    And evaluation of `CucuShift::Common::Net.dns_lookup("test.com")` is stored in the :test_ip clipboard
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egressnetworkpolicy/policy.json"
+    And I replace lines in "policy.json":
+      | 10.66.140.0/24 | <%= cb.test_ip %>/32 |
+    And I run the :create admin command with:
+      | f | policy.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed
+   
+    # Create a service with a "externalname"
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/service-externalName.json"
+    And I run the :create admin command with:
+      | f | service-externalName.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed 
+    
+    # Check curl from pod
+    When I execute on the pod:
+      | curl |-ILs  | --head | www.test.com |
+    Then the step should fail
+
+    # Delete egress network policy
+    Given I switch to cluster admin pseudo user
+    When I run the :delete client command with:
+      | object_type       | egressnetworkpolicy |
+      | object_name_or_id | default             |
+      | n                 | <%= project.name %> |
+    Then the step should succeed
+    And the output should contain:
+      | egressnetworkpolicy |
+      | deleted             |
+    
+    # Create egress policy to allow www.test.com
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egressnetworkpolicy/policy.json"
+    And I run the :create admin command with:
+      | f | policy.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed
+    
+    # Check curl from pod
+    When I execute on the pod:
+      | curl | -ILs | --head | www.test.com |    
+    And the output should contain "HTTP/1.1 200"
+
+
+  # @author weliang@redhat.com
+  # @case_id OCP-15005
+  @admin
+  Scenario: Service with a DNS name can not by pass Egressnetworkpolicy with that DNS name	
+    Given the env is using multitenant network
+    Given I have a project
+    Given I have a pod-for-ping in the project
+    And evaluation of `project.name` is stored in the :proj1 clipboard
+
+    # Create egress policy to deny www.test.com
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egress-ingress/dns-egresspolicy2.json"
+    And I replace lines in "dns-egresspolicy2.json":
+      | 98.138.0.0/16 | 0.0.0.0/0 |
+      | yahoo.com | www.test.com |
+    And I run the :create admin command with:
+      | f | dns-egresspolicy2.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed
+    
+    # Create a service with a "externalname"
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/service-externalName.json"
+    And I run the :create admin command with:
+      | f | service-externalName.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed 
+    
+    # Check curl from pod
+    When I execute on the pod:
+      | curl |-ILs  | --head | www.test.com |
+    Then the step should fail
+
+    # Delete egress network policy
+    Given I switch to cluster admin pseudo user
+    When I run the :delete client command with:
+      | object_type       | egressnetworkpolicy |
+      | object_name_or_id | policy-test         |
+      | n                 | <%= project.name %> |
+    Then the step should succeed
+    And the output should contain:
+      | egressnetworkpolicy |
+      | deleted             |
+    
+    # Create egress policy to allow www.test.com
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egress-ingress/dns-egresspolicy2.json"
+    And I replace lines in "dns-egresspolicy2.json":
+      | 98.138.0.0/16 | 0.0.0.0/0 |
+      | yahoo.com | www.cisco.com |
+    And I run the :create admin command with:
+      | f | dns-egresspolicy2.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed
+    
+    # Check curl from pod
+    When I execute on the pod:
+      | curl | -ILs | --head | www.test.com |    
+    And the output should contain "HTTP/1.1 200"
+
+
+  # @author weliang@redhat.com
+  # @case_id OCP-15017
+  @admin
+  Scenario: Add nodes local IP address to OVS rules for egressnetworkpolicy
+    Given the env is using multitenant network
+    Given I have a project
+    Given I have a pod-for-ping in the project
+    And evaluation of `pod('hello-pod').node_ip(user: user)` is stored in the :hostip clipboard
+    And evaluation of `project.name` is stored in the :proj1 clipboard
+
+    # Create egress policy to allow www.facebook.com
+    When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egress-ingress/dns-egresspolicy1.json"
+    And I replace lines in "dns-egresspolicy1.json":
+      | 98.138.0.0/16 | 0.0.0.0/0 |
+      | yahoo.com | www.facebook.com |
+    And I run the :create admin command with:
+      | f | dns-egresspolicy1.json |
+      | n | <%= cb.proj1 %> |
+    Then the step should succeed
+
+    # Check ping from pod
+    When I execute on the pod:
+      | ping | -c2 | -W2 | www.cisco.com |
+    Then the step should fail
+    When I execute on the pod:
+      | ping | -c2 | -W2 | www.facebook.com |
+    Then the step should succeed
+
+    # Check egress rule added in openflow
+    Given I select a random node's host
+    When I run commands on the host:
+       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep tcp \|grep table=100 \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep tcp  |grep table=100 | grep tp_dst=53 )  |
+    And the output should contain 1 times:
+       | nw_dst=<%= cb.hostip %> |
+      When I run commands on the host:
+       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep udp \|grep table=100 \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep udp  |grep table=100 | grep tp-dst=53 )  |
+    And the output should contain 1 times:
+       | nw_dst=<%= cb.hostip %> |
