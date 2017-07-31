@@ -754,7 +754,7 @@ Feature: Egress-ingress related networking scenarios
   # @author weliang@redhat.com
   # @case_id OCP-15004
   @admin
-  Scenario: Service with a DNS name can not by pass Egressnetworkpolicy with that DNS name	
+  Scenario: Service with a DNS name can not by pass Egressnetworkpolicy with IP corresponding that DNS name
     Given the env is using multitenant network
     Given I have a project
     Given I have a pod-for-ping in the project
@@ -779,12 +779,11 @@ Feature: Egress-ingress related networking scenarios
     
     # Check curl from pod
     When I execute on the pod:
-      | curl |-ILs  | --head | www.test.com |
+      | curl |-ILs | www.test.com |
     Then the step should fail
 
     # Delete egress network policy
-    Given I switch to cluster admin pseudo user
-    When I run the :delete client command with:
+    When I run the :delete admin command with:
       | object_type       | egressnetworkpolicy |
       | object_name_or_id | default             |
       | n                 | <%= project.name %> |
@@ -802,7 +801,7 @@ Feature: Egress-ingress related networking scenarios
     
     # Check curl from pod
     When I execute on the pod:
-      | curl | -ILs | --head | www.test.com |    
+      | curl | -ILs | www.test.com |    
     And the output should contain "HTTP/1.1 200"
 
 
@@ -834,12 +833,11 @@ Feature: Egress-ingress related networking scenarios
     
     # Check curl from pod
     When I execute on the pod:
-      | curl |-ILs  | --head | www.test.com |
+      | curl |-ILs  | www.test.com |
     Then the step should fail
 
     # Delete egress network policy
-    Given I switch to cluster admin pseudo user
-    When I run the :delete client command with:
+    When I run the :delete admin command with:
       | object_type       | egressnetworkpolicy |
       | object_name_or_id | policy-test         |
       | n                 | <%= project.name %> |
@@ -860,7 +858,7 @@ Feature: Egress-ingress related networking scenarios
     
     # Check curl from pod
     When I execute on the pod:
-      | curl | -ILs | --head | www.test.com |    
+      | curl | -ILs  | www.test.com |    
     And the output should contain "HTTP/1.1 200"
 
 
@@ -874,11 +872,21 @@ Feature: Egress-ingress related networking scenarios
     And evaluation of `pod('hello-pod').node_ip(user: user)` is stored in the :hostip clipboard
     And evaluation of `project.name` is stored in the :proj1 clipboard
 
-    # Create egress policy to allow www.facebook.com
+    # Check egress rule added in openflow
+    Given I select a random node's host
+    When I run commands on the host:
+       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep tcp \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep tcp  |grep tp_dst=53 )  |
+    And the output should contain 1 times:
+       | nw_dst=<%= cb.hostip %> |
+      When I run commands on the host:
+       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep udp \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep udp  | grep tp-dst=53 )  |
+    And the output should contain 1 times:
+       | nw_dst=<%= cb.hostip %> |
+    # Create egress policy to allow www.baidu.com
     When I download a file from "https://raw.githubusercontent.com/openshift-qe/v3-testfiles/master/networking/egress-ingress/dns-egresspolicy1.json"
     And I replace lines in "dns-egresspolicy1.json":
       | 98.138.0.0/16 | 0.0.0.0/0 |
-      | yahoo.com | www.facebook.com |
+      | yahoo.com | www.baidu.com |
     And I run the :create admin command with:
       | f | dns-egresspolicy1.json |
       | n | <%= cb.proj1 %> |
@@ -889,16 +897,6 @@ Feature: Egress-ingress related networking scenarios
       | ping | -c2 | -W2 | www.cisco.com |
     Then the step should fail
     When I execute on the pod:
-      | ping | -c2 | -W2 | www.facebook.com |
+      | ping | -c2 | -W2 | www.baidu.com |
     Then the step should succeed
 
-    # Check egress rule added in openflow
-    Given I select a random node's host
-    When I run commands on the host:
-       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep tcp \|grep table=100 \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep tcp  |grep table=100 | grep tp_dst=53 )  |
-    And the output should contain 1 times:
-       | nw_dst=<%= cb.hostip %> |
-      When I run commands on the host:
-       | (ovs-ofctl dump-flows br0 -O openflow13 \| grep udp \|grep table=100 \| grep tp_dst=53  \|\| docker exec openvswitch ovs-ofctl dump-flows br0 -O openflow13 | grep udp  |grep table=100 | grep tp-dst=53 )  |
-    And the output should contain 1 times:
-       | nw_dst=<%= cb.hostip %> |
